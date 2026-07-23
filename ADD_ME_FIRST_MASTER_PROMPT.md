@@ -196,6 +196,52 @@ There is no hardware mixing stage shared by all four channels.
 
 A new note normally interrupts the currently playing sample on that channel.
 
+### Channel optimization with combined samples
+
+The four Paula channels are a strict musical resource.
+
+When two percussion sounds must occur at the same musical instant, consider embedding them into one combined sample so that the complete accent can be triggered from a single channel.
+
+Recommended examples:
+
+- `KICK`: kick alone for ordinary quarter-note beats
+- `KICK+SNARE`: kick and snare premixed into one sample for beats 2 and 4
+- `KICK+CLAP`: kick and clap premixed for stronger accents
+- `KICK+OPEN HAT`: kick and open hi-hat combined when both must occur together
+- `SNARE+CLAP`: layered backbeat
+- `HAT+SHAKER`: combined high-frequency rhythmic texture
+- short premixed percussion fills when this releases a channel for pitched material
+
+For a four-on-the-floor pattern, a typical one-channel drum strategy is:
+
+- beats 1 and 3: trigger `KICK`
+- beats 2 and 4: trigger `KICK+SNARE`
+
+This preserves the kick on every quarter note while adding the backbeat without consuming a second Paula channel.
+
+The same technique may be used with hi-hats, claps, shakers, toms, cymbals or other compatible instruments when musically and technically useful.
+
+Combined samples must be designed intentionally.
+
+Before embedding them:
+
+1. align the component transients
+2. preserve the kick attack and low-frequency body
+3. control phase cancellation
+4. balance the components before 8-bit quantization
+5. remove avoidable DC offset
+6. preserve headroom and prevent clipping
+7. verify that one component does not mask the other
+8. check the result after signed 8-bit conversion
+9. ensure even sample length and valid loop fields
+10. verify that the combined sample still works at every trigger period actually used
+
+Do not create a combined sample by blindly summing full-level waveforms.
+
+Remember that a later event on the same channel interrupts the current sample. Design the decay and tail of combined percussion samples so that the next rhythmic event does not cut an essential part of the sound.
+
+Use combined samples only when they improve channel economy without damaging clarity, groove or dynamics. Do not combine instruments merely to increase event density.
+
 ---
 
 ## 6. Paula playback-rate formulas
@@ -565,6 +611,87 @@ Avoid:
 
 ## 14. Correct effect usage
 
+### ProTracker arpeggio
+
+The ProTracker arpeggio effect is the built-in `0xy` command.
+
+It simulates a three-note chord on one Paula channel by rapidly changing the playback period of a single selected sample across successive ticks.
+
+Command behavior:
+
+- tick 0: play the base note
+- tick 1: play the base note transposed upward by `x` semitones
+- tick 2: play the base note transposed upward by `y` semitones
+- subsequent ticks repeat the sequence `base, +x, +y` until the next row
+
+At speed 6, the complete three-tick cycle normally occurs twice during the row:
+
+`base → +x → +y → base → +x → +y`
+
+Common examples:
+
+- `037` — minor triad: root, minor third, perfect fifth
+- `047` — major triad: root, major third, perfect fifth
+
+Example with an explicit sample:
+
+`A-2 0C 037`
+
+This triggers sample 12 on `A-2`, then cycles through `A`, `C` and `E` during the row.
+
+An event such as:
+
+`A-2 00 037`
+
+may reuse the sample already selected on that channel, but it must not be used as the first event if no valid sample has previously been selected. Prefer an explicit sample number at the beginning of an arpeggiated phrase.
+
+Use arpeggio primarily with:
+
+- sine waves
+- square waves
+- pulse waves
+- simple saw-like waves
+- stable monophonic synthesizer samples
+- short, harmonically controlled chip-style samples
+
+Arpeggio can sound grainy, harsh or noisy with complex, noisy, inharmonic or already polyphonic samples because ProTracker changes the playback period rapidly.
+
+Do not use a pre-rendered chord sample with `0xy` unless the resulting transpositions have been deliberately tested. The effect should normally operate on a single-pitch sample.
+
+For SID-style or chip-style passages:
+
+- use a simple, correctly tuned sine, square or pulse sample
+- choose chord intervals that match the current harmony
+- vary roots and chord qualities with the arrangement
+- avoid leaving the same `0xy` value active through unrelated harmonic changes
+- preserve space for the bass and lead
+- control high-frequency harshness and aliasing
+- use silence and rhythmic gating to prevent continuous arpeggio fatigue
+
+The arpeggio renderer must transpose by semitone ratios rather than by arbitrary period subtraction.
+
+For a transposition of `n` semitones:
+
+`FrequencyMultiplier = 2^(n / 12)`
+
+The corresponding target period is approximately:
+
+`TargetPeriod = BasePeriod / 2^(n / 12)`
+
+For authentic tuning-zero playback, prefer the nearest valid period from the ProTracker period table for the required note. Do not generate non-standard periods merely to approximate the ratio.
+
+Validation must confirm:
+
+1. `x` and `y` are valid hexadecimal semitone offsets
+2. every transposed note remains within `C-1` to `B-3`
+3. the selected sample is valid and audible
+4. the base note and both transposed notes match the intended chord
+5. the arpeggio does not exceed the safe practical playback-rate range
+6. the effect is reproduced tick-by-tick in the control renderer
+7. the validation report lists the arpeggio commands and affected note ranges
+
+Do not replace a requested ProTracker `0xy` arpeggio with manually sequenced notes and describe it as the same technique. Explicit rapid notes may be used as a separate compositional method, but they must be identified accurately.
+
 ### Vibrato
 
 Initialize with `4xy`.
@@ -865,6 +992,7 @@ The renderer must reproduce at least:
 
 - sample triggering
 - period-based resampling
+- ProTracker `0xy` arpeggio with tick-by-tick `base, +x, +y` cycling
 - sample volume
 - channel panning
 - note termination
@@ -963,6 +1091,8 @@ The validation report must include:
 - loop-boundary check
 - period check
 - effect check
+- `0xy` arpeggio commands, tick behavior, sample references and resulting note ranges
+- combined-sample usage and the channel capacity released by it
 - event-density summary
 - sample pitch analysis
 - PAL/NTSC playback-rate analysis
